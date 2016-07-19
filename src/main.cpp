@@ -10,6 +10,7 @@
 
 duk_context *ctx = nullptr;
 ClientSocket* clientSocket = nullptr;
+HINSTANCE dllhandle;
 
 void require(duk_context* ctx, char* base_path, char* override_path, char* file)
 {
@@ -44,6 +45,9 @@ BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH) // Self-explanatory
     {
+		// Save handle
+		dllhandle = handle;
+
         // Create socket
         clientSocket = new ClientSocket(AF_INET, SOCK_STREAM, 0);
         clientSocket->connect("127.0.0.1", 25100);
