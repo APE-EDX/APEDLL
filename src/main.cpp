@@ -86,14 +86,14 @@ BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID reserved)
             char* override_from = &path[len + 1];
 
             // Add all API files
-            require(ctx, path, override_from, "api/eval_js.js");
-            require(ctx, path, override_from, "api/call_convention.js");
-            require(ctx, path, override_from, "api/ptr.js");
-            require(ctx, path, override_from, "api/find.js");
-            require(ctx, path, override_from, "api/redirect.js");
+            require(ctx, path, override_from, "../../jsAPI/eval_js.js");
+            require(ctx, path, override_from, "../../jsAPI/call_convention.js");
+            require(ctx, path, override_from, "../../jsAPI/ptr.js");
+            require(ctx, path, override_from, "../../jsAPI/find.js");
+            require(ctx, path, override_from, "../../jsAPI/redirect.js");
 
             // Custom user init code
-            require(ctx, path, override_from, "init.js");
+            require(ctx, path, override_from, "../../init.js");
         }
         else
         {
