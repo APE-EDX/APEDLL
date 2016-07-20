@@ -5,10 +5,12 @@
 inline void push_eax(MemoryFunction& fn) { fn << (uint8_t)0x50; }
 inline void push_ebx(MemoryFunction& fn) { fn << (uint8_t)0x53; }
 inline void push_ebp(MemoryFunction& fn) { fn << (uint8_t)0x55; }
+inline void push_ecx(MemoryFunction& fn) { fn << (uint8_t)0x51; }
 inline void push_edi(MemoryFunction& fn) { fn << (uint8_t)0x57; }
 
 inline void pop_edi(MemoryFunction& fn) { fn << (uint8_t)0x5F; }
 inline void pop_ebx(MemoryFunction& fn) { fn << (uint8_t)0x5B; }
+inline void pop_ecx(MemoryFunction& fn) { fn << (uint8_t)0x59; }
 inline void pop_ebp(MemoryFunction& fn) { fn << (uint8_t)0x5D; }
 
 inline void push(MemoryFunction& fn, uint8_t b)
@@ -57,16 +59,33 @@ inline void mov_eax_dword_ptr_ebp_eax(MemoryFunction& fn, uint8_t offset)
 	fn << offset;
 }
 
+inline void mov_ecx_dword_ptr_esp(MemoryFunction& fn, uint8_t offset)
+{
+	fn << (uint8_t)0x8B;
+	fn << (uint8_t)0x4C;
+	fn << (uint8_t)0x24;
+	fn << offset;
+}
+
 inline void mov_eax_abs(MemoryFunction& fn, uint32_t val)
 {
 	fn << (uint8_t)0xB8;
 	fn << val;
 }
 
+inline void mov_ecx_ebx(MemoryFunction& fn)
+{
+	fn << (uint16_t)0xCB8B;
+}
+
 inline void mov_edi_ebx(MemoryFunction& fn)
 {
-	fn << (uint8_t)0x8B;
-	fn << (uint8_t)0xFB;
+	fn << (uint16_t)0xFB8B;
+}
+
+inline void mov_ecx_edi(MemoryFunction& fn)
+{
+	fn << (uint16_t)0xCF8B;
 }
 
 inline void mov_ebp_esp(MemoryFunction& fn)
@@ -74,14 +93,34 @@ inline void mov_ebp_esp(MemoryFunction& fn)
 	fn << (uint16_t)0xEC8B;
 }
 
+inline void mov_esp_ebp(MemoryFunction& fn)
+{
+	fn << (uint16_t)0xE58B;
+}
+
+inline void xor_edi_edi(MemoryFunction& fn)
+{
+	fn << (uint16_t)0xFF33;
+}
+
 inline void test_edi_edi(MemoryFunction& fn)
 {
 	fn << (uint16_t)0xFF85;
 }
 
+inline void cmp_edi_ecx(MemoryFunction& fn)
+{
+	fn << (uint16_t)0xF93B;
+}
+
 inline void dec_edi(MemoryFunction& fn)
 {
 	fn << (uint8_t)0x4F;
+}
+
+inline void inc_edi(MemoryFunction& fn)
+{
+	fn << (uint8_t)0x47;
 }
 
 inline void call(MemoryFunction& fn, void* callee)
