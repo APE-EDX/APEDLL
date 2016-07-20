@@ -129,6 +129,11 @@ inline void call(MemoryFunction& fn, void* callee)
 	fn << (uint32_t)(((uintptr_t)callee - (fn.get() - 1)) - 5);
 }
 
+inline void call_eax(MemoryFunction& fn)
+{
+	fn << (uint16_t)0xD0FF;
+}
+
 inline void jmp_long(MemoryFunction& fn, void* callee)
 {
 	fn << (uint8_t)0xE9;

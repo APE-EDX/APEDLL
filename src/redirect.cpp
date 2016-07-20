@@ -5,7 +5,9 @@
 #include <Windows.h>
 #include <Psapi.h>
 
+Allocator* allocator = new Allocator();
 MemoryFunction* redirectDetour = nullptr;
+MemoryFunction* redirectCallorigin = nullptr;
 
 #ifdef BUILD_64
 
@@ -64,6 +66,7 @@ MemoryFunction* getRedirect(Allocator* allocator)
 			// }
 		}
 
+		// FIXME: This loop is inverted... see the 32 bits implementation
 		// For each argument (>= 5)
 		// {
 			test_edi_edi(fn);
@@ -99,9 +102,8 @@ MemoryFunction* getRedirect(Allocator* allocator)
 	return redirectDetour;
 }
 
-duk_ret_t createRedirection(duk_context *ctx)
+duk_ret_t initializeRedirection(duk_context *ctx)
 {
-	Allocator* allocator = new Allocator();
 	MemoryFunction* mem = getRedirect(allocator);
 
 	int n = duk_get_top(ctx);  /* #args */
@@ -145,6 +147,7 @@ duk_ret_t createRedirection(duk_context *ctx)
 	mov_rax_abs(codecave, (uint64_t)codecave.get() + 33);
 	push_rax(codecave);
 
+	// Save stack pointer
 	push_rbp(codecave);
 	mov_rbp_rsp(codecave);
 
@@ -161,12 +164,68 @@ duk_ret_t createRedirection(duk_context *ctx)
 	// ret
 	ret(codecave);
 
+
+	////////////////////
+	MemoryFunction* call_org_ptr = new MemoryFunction(allocator, 23);
+	MemoryFunction& call_org = *call_org_ptr;
+
+	push_rbp(call_org);
+	mov_rbp_rsp(call_org);
+
+	for (int i = numArgs - 1; i >= 0; --i)
+	{
+		push_rcx(call_org);
+		mov_rdx_abs(call_org, 0);
+		call(call_org, duk_to_pointer);
+		pop_rcx(call_org);
+
+		push_rax(call_org);
+	}
+
+	if (numArgs > 0)
+	{
+		mov_rcx_qword_ptr_rsp(call_org, (numArgs - 1) * 8);
+	}
+	if (numArgs > 1)
+	{
+		mov_rdx_qword_ptr_rsp(call_org, (numArgs - 2) * 8);
+	}
+	if (numArgs > 2)
+	{
+		mov_r8_qword_ptr_rsp(call_org, (numArgs - 3) * 8);
+	}
+	if (numArgs > 3)
+	{
+		mov_r9_qword_ptr_rsp(call_org, (numArgs - 4) * 8);
+	}
+
+	// Return point
+	mov_rax_abs(call_org, (uint64_t)(call_org.get() + 31));
+	push_rax(call_org);
+
+	for (int i = 0; i < 15; ++i)
+	{
+		call_org << *(BYTE*)(address + i);
+	}
+	jmp_long(call_org, (void*)(address + 15));
+
+	add_rsp_abs(call_org, numArgs * 8);
+	pop_rbp(call_org);
+	ret(call_org);
+
+	// Get access to the default instance.
+	duk_push_this(ctx);
+	duk_push_pointer(ctx, (void*)call_org.start());
+	duk_put_prop_string(ctx, -2, "fn_ptr");
+
+
 	// jmp codecave
 	// CreateHook((void*)address, (void*)codecave, false);
 
 	// Unprotect address
+	// TODO: It's 12 not 15
 	DWORD oldProtect;
-	VirtualProtect((LPVOID)address, 12, PAGE_EXECUTE_READWRITE, &oldProtect);
+	VirtualProtect((LPVOID)address, 15, PAGE_EXECUTE_READWRITE, &oldProtect);
 
 	// JMP dest
 	*(BYTE*)(address + 0) = 0x48;
@@ -174,8 +233,11 @@ duk_ret_t createRedirection(duk_context *ctx)
 	*(QWORD*)(address + 2) = (DWORD_PTR)codecave.start();
 	*(BYTE*)(address + 10) = 0xFF;
 	*(BYTE*)(address + 11) = 0xE0;
+	*(BYTE*)(address + 12) = 0x90;
+	*(BYTE*)(address + 13) = 0x90;
+	*(BYTE*)(address + 14) = 0x90;
 
-	VirtualProtect((LPVOID)address, 12, oldProtect, &oldProtect);
+	VirtualProtect((LPVOID)address, 15, oldProtect, &oldProtect);
 
 	duk_push_boolean(ctx, true);
 	return 1;  /* one return value */
@@ -245,24 +307,12 @@ MemoryFunction* getRedirect(Allocator* allocator)
 	return redirectDetour;
 }
 
-duk_ret_t createRedirection(duk_context *ctx)
-{
-	// Make sure it is a constructor
-	if (!duk_is_constructor_call(ctx))
-	{
-		return DUK_RET_TYPE_ERROR;
-	}
-
-	return 0;
-}
-
 duk_ret_t initializeRedirection(duk_context *ctx)
 {
-	Allocator* allocator = new Allocator();
 	MemoryFunction* mem = getRedirect(allocator);
 
     int n = duk_get_top(ctx);  /* #args */
-	
+
     // Address
     DWORD address = (DWORD)duk_to_pointer(ctx, 0);
 
@@ -291,6 +341,7 @@ duk_ret_t initializeRedirection(duk_context *ctx)
     // 5 push + 1 push + 2 mov + 2 push + 5 push + 5 call + 3 retn
 	MemoryFunction* codecave_ptr = new MemoryFunction(allocator, 23);
 	MemoryFunction& codecave = *codecave_ptr;
+
     if (codecave.get() == NULL)
     {
         duk_push_boolean(ctx, false);
@@ -322,7 +373,7 @@ duk_ret_t initializeRedirection(duk_context *ctx)
     {
 		ret(codecave);
     }
-	
+
 	////////////////////
 	MemoryFunction* call_org_ptr = new MemoryFunction(allocator, 23);
 	MemoryFunction& call_org = *call_org_ptr;
@@ -343,13 +394,13 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 		push_eax(call_org);
 	}
 
+	// Return point
 	push(call_org, (uint32_t)(call_org.get() + 15));
 
-	call_org << *(BYTE*)(address + 0);
-	call_org << *(BYTE*)(address + 1);
-	call_org << *(BYTE*)(address + 2);
-	call_org << *(BYTE*)(address + 3);
-	call_org << *(BYTE*)(address + 4);
+	for (int i = 0; i < 5; ++i)
+	{
+		call_org << *(BYTE*)(address + i);
+	}
 	jmp_long(call_org, (void*)(address + 5));
 
 	pop_ebp(call_org);
@@ -369,29 +420,98 @@ duk_ret_t initializeRedirection(duk_context *ctx)
     return 0;  /* undefined, default */
 }
 
-duk_ret_t redirectCallorigin(duk_context *ctx)
-{
-	duk_push_this(ctx);
-	duk_get_prop_string(ctx, -1, "fn_ptr");
-	uintptr_t fn_ptr = (uintptr_t)duk_to_pointer(ctx, -1);
-
-	__asm push ctx
-	__asm mov eax, fn_ptr
-	__asm call eax
-	__asm add esp, 4
-
-	__asm push eax
-	__asm push ctx
-	__asm call duk_push_pointer
-	__asm add esp, 8
-
-	return 1;
-}
-
 #endif
 
 
+duk_ret_t createRedirection(duk_context *ctx)
+{
+	// Make sure it is a constructor
+	if (!duk_is_constructor_call(ctx))
+	{
+		return DUK_RET_TYPE_ERROR;
+	}
+
+	return 0;
+}
+
+
+char* fn_ptr = "fn_ptr";
 void InitializeDuktape_Redirect(duk_context *ctx) {
+	redirectCallorigin = new MemoryFunction(allocator, 20);
+	MemoryFunction& fn = *redirectCallorigin;
+
+#ifdef BUILD_64
+	push_rbp(fn);
+	mov_rbp_rsp(fn);
+
+	push_rcx(fn);
+	call(fn, duk_push_this);
+	pop_rcx(fn);
+
+	push_rcx(fn);
+	mov_rdx_abs(fn, -1);
+	mov_r8_abs(fn, (uint64_t)fn_ptr);
+	call(fn, duk_get_prop_string);
+	pop_rcx(fn);
+
+	push_rcx(fn);
+	mov_rdx_abs(fn, -1);
+	call(fn, duk_to_pointer);
+	pop_rcx(fn);
+
+	push_rcx(fn);
+	call_rax(fn);
+	pop_rcx(fn);
+
+	mov_rdx_rax(fn);
+	call(fn, duk_push_pointer);
+
+	pop_rbp(fn);
+	mov_eax_rax(fn, (uint32_t)1);
+	ret(fn);
+#else
+	mov_ecx_dword_ptr_esp(fn, 4);
+	push_ebp(fn);
+	mov_ebp_esp(fn);
+
+	push_ecx(fn);
+	push_ecx(fn);
+	call(fn, duk_push_this);
+	add_esp(fn, 4);
+	pop_ecx(fn);
+
+	push_ecx(fn);
+	push(fn, (uint32_t)fn_ptr);
+	push(fn, (uint32_t)-1);
+	push_ecx(fn);
+	call(fn, duk_get_prop_string);
+	add_esp(fn, 12);
+	pop_ecx(fn);
+
+	push_ecx(fn);
+	push(fn, (uint32_t)-1);
+	push_ecx(fn);
+	call(fn, duk_to_pointer);
+	add_esp(fn, 8);
+	pop_ecx(fn);
+
+	push_ecx(fn);
+	push_ecx(fn);
+	call_eax(fn);
+	add_esp(fn, 4);
+	pop_ecx(fn);
+
+	push_eax(fn);
+	push_ecx(fn);
+	call(fn, duk_push_pointer);
+	add_esp(fn, 8);
+
+	pop_ebp(fn);
+
+	mov_eax_abs(fn, 1);
+	ret(fn);
+#endif
+
 	/* Push constructor function; all Duktape/C functions are
 	* "constructable" and can be called as 'new Foo()'.
 	*/
@@ -405,11 +525,10 @@ void InitializeDuktape_Redirect(duk_context *ctx) {
 	duk_put_prop_string(ctx, -2, "init");
 
 	/* Set MyObject.prototype.fn. */
-	duk_push_c_function(ctx, redirectCallorigin, DUK_VARARGS);
+	duk_push_c_function(ctx, (duk_c_function)redirectCallorigin->start(), DUK_VARARGS);
 	duk_put_prop_string(ctx, -2, "fn");
 
 	/* Set MyObject.prototype = proto */
 	duk_put_prop_string(ctx, -2, "prototype");
 	duk_put_global_string(ctx, "cpp_redirect");
 }
-

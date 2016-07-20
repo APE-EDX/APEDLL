@@ -16,28 +16,43 @@ inline void mov_rdx_r8(MemoryFunction& fn)
 	fn << (uint8_t)0xC2;
 }
 
-inline void mov_xxx_qword_ptr_rsp(MemoryFunction& fn, uint8_t reg, uint8_t reg2, uint8_t offset)
+inline void mov_xxx_qword_ptr_rsp(MemoryFunction& fn, uint8_t reg0, uint8_t reg, uint8_t reg2, uint8_t offset)
 {
-	fn << (uint8_t)0x48;
+	fn << reg0;
 	fn << (uint8_t)0x8B;
 	fn << reg;
 	fn << reg2;
 	fn << offset;
 }
 
+inline void mov_rbx_qword_ptr_rsp(MemoryFunction& fn, uint8_t offset)
+{
+	mov_xxx_qword_ptr_rsp(fn, 0x48, 0x5C, 0x24, offset);
+}
+
+inline void mov_rcx_qword_ptr_rsp(MemoryFunction& fn, uint8_t offset)
+{
+	mov_xxx_qword_ptr_rsp(fn, 0x48, 0x4C, 0x24, offset);
+}
+
 inline void mov_rdx_qword_ptr_rsp(MemoryFunction& fn, uint8_t offset)
 {
-	mov_xxx_qword_ptr_rsp(fn, 0x54, 0x24, offset);
+	mov_xxx_qword_ptr_rsp(fn, 0x48, 0x54, 0x24, offset);
+}
+
+inline void mov_r8_qword_ptr_rsp(MemoryFunction& fn, uint8_t offset)
+{
+	mov_xxx_qword_ptr_rsp(fn, 0x4C, 0x44, 0x24, offset);
+}
+
+inline void mov_r9_qword_ptr_rsp(MemoryFunction& fn, uint8_t offset)
+{
+	mov_xxx_qword_ptr_rsp(fn, 0x4C, 0x4C, 0x24, offset);
 }
 
 inline void mov_rdx_qword_ptr_rbp_rax(MemoryFunction& fn, uint8_t offset)
 {
-	mov_xxx_qword_ptr_rsp(fn, 0x54, 0x05, offset);
-}
-
-inline void mov_rbx_qword_ptr_rsp(MemoryFunction& fn, uint8_t offset)
-{
-	mov_xxx_qword_ptr_rsp(fn, 0x5C, 0x24, offset);
+	mov_xxx_qword_ptr_rsp(fn, 0x48, 0x54, 0x05, offset);
 }
 
 inline void mov_rbp_rsp(MemoryFunction& fn)
@@ -50,6 +65,31 @@ inline void mov_rbp_rsp(MemoryFunction& fn)
 inline void mov_rcx_abs(MemoryFunction& fn, uint64_t val)
 {
 	fn << (uint16_t)0xB948;
+	fn << val;
+}
+
+inline void mov_rdx_abs(MemoryFunction& fn, uint64_t val)
+{
+	fn << (uint16_t)0xBA48;
+	fn << val;
+}
+
+inline void mov_rdx_rax(MemoryFunction& fn)
+{
+	fn << (uint8_t)0x48;
+	fn << (uint8_t)0x89;
+	fn << (uint8_t)0xC2;
+}
+
+inline void mov_r8_abs(MemoryFunction& fn, uint64_t val)
+{
+	fn << (uint16_t)0xB849;
+	fn << val;
+}
+
+inline void mov_r10_abs(MemoryFunction& fn, uint64_t val)
+{
+	fn << (uint16_t)0xBA49;
 	fn << val;
 }
 
@@ -123,6 +163,13 @@ inline void call(MemoryFunction& fn, void* callee)
 	fn << (uint8_t)0xE8;
 	fn << (uint32_t)(((uintptr_t)callee - (fn.get() - 1)) - 5);
 
+	add_rsp_abs(fn, 0x28);
+}
+
+inline void call_rax(MemoryFunction& fn)
+{
+	sub_rsp_abs(fn, 0x28);
+	fn << (uint16_t)0xD0FF;
 	add_rsp_abs(fn, 0x28);
 }
 
