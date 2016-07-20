@@ -1,354 +1,108 @@
 #include "redirect.hpp"
 #include "helpers.hpp"
+#include "asm.hpp"
 
 #include <Windows.h>
 #include <Psapi.h>
 
+MemoryFunction* redirectDetour = nullptr;
+
 #ifdef BUILD_64
 
 typedef DWORD_PTR QWORD;
-extern HINSTANCE dllhandle;
 
-DWORD_PTR lastMemory = NULL;
-size_t remainingSize = 0x00;
-
-void* GetNearMemory(LPVOID address, size_t size)
+MemoryFunction* getRedirect(Allocator* allocator)
 {
-	DWORD_PTR mem = NULL;
-	
-	if (size < remainingSize && lastMemory != NULL)
+	if (!redirectDetour)
 	{
-		mem = (DWORD_PTR)lastMemory;
-		lastMemory += size;
-		remainingSize -= size;
-	}
-	else
-	{
-		if (address == NULL)
+		redirectDetour = new MemoryFunction(allocator, 245);
+		MemoryFunction& fn = *redirectDetour;
+
+		push_rdx(fn);
+		push_rcx(fn);
+		mov_rdx_qword_ptr_rsp(fn, 0x10);
+		mov_rcx_abs(fn, (uint64_t)ctx);
+
+		call(fn, duk_get_global_string);
+
+		mov_rbx_qword_ptr_rsp(fn, 0x18);
+
+		mov_edi_ebx(fn);
+
+		// Arguments 1 & 2 (RCX & RDX)
+		for (int i = 0; i < 2; ++i)
 		{
-			MODULEINFO modInfo;
-			GetModuleInformation(GetCurrentProcess(), dllhandle, &modInfo, sizeof(MODULEINFO));
-			address = (LPVOID)((QWORD)modInfo.EntryPoint + modInfo.SizeOfImage);
+			// if (num_args > 0) {
+				test_edi_edi(fn);
+				je_short(fn, 30);
+
+				pop_rdx(fn);
+				mov_rcx_abs(fn, (uint64_t)ctx);
+				call(fn, duk_push_pointer);
+
+				dec_edi(fn);
+
+				jmp_short(fn, 3);
+			// }
+			// else {
+				pop_rcx(fn);
+			// }
 		}
 
-		for (int i = 0; i < 20; ++i)
+		// Arguments 3 & 4 (R8 & R9)
+		for (int i = 0; i < 2; ++i)
 		{
-			address = (LPVOID)((QWORD)address + i * 0x10000);
-			MEMORY_BASIC_INFORMATION mi = { 0 };
-			VirtualQuery(address, &mi, sizeof(mi));
+			// if (num_args > 0) {
+				test_edi_edi(fn);
+				je_short(fn, 30);
 
-			if (mi.State == MEM_FREE)
-			{
-				mem = (DWORD_PTR)VirtualAlloc(address, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-				if (mem)
-				{
-					lastMemory = mem + size;
-					remainingSize = 0x10000 - size;
-					break;
-				}
-			}
+				mov_rdx_r8(fn);
+				mov_rcx_abs(fn, (uint64_t)ctx);
+				call(fn, duk_push_pointer);
+
+				dec_edi(fn);
+			// }
 		}
+
+		// For each argument (>= 5)
+		// {
+			test_edi_edi(fn);
+			je_short(fn, 45);
+
+			// Cada parametro = 8 bytes ... 1, 2, 3 * 8 = 8, 16, 24 ...
+			mov_rax_abs(fn, (uint32_t)8);
+			push_rax(fn);
+			imul_eax_edi(fn);
+
+			mov_rdx_qword_ptr_rbp_rax(fn, 0x10);
+			mov_rcx_abs(fn, (uint64_t)ctx);
+			call(fn, duk_push_pointer);
+
+			dec_edi(fn);
+
+			jmp_short(fn, -45);
+		//}
+
+		// call duktape
+		mov_rdx_rbx(fn);
+		mov_rcx_abs(fn, (uint64_t)ctx);
+		call(fn, duk_pcall);
+
+		// Stack cleanup
+		add_rsp_abs(fn, 0x10);
+		pop_rbp(fn);
+
+		// RET
+		ret(fn);
 	}
 
-	return (LPVOID)mem;
-}
-
-void* CreateJSRedirect()
-{
-	DWORD_PTR mem = (DWORD_PTR)GetNearMemory(NULL, 245);
-
-	DWORD_PTR mem_start = mem;
-
-	// push RDX
-	*(BYTE*)(mem + 0) = 0x52;
-	// push RCX
-	*(BYTE*)(mem + 1) = 0x51;
-
-	mem += 2;
-	// mov rdx, qword ptr [rsp + 16]
-	*(BYTE*)(mem + 0) = 0x48;
-	*(BYTE*)(mem + 1) = 0x8B;
-	*(BYTE*)(mem + 2) = 0x54;
-	*(BYTE*)(mem + 3) = 0x24;
-	*(BYTE*)(mem + 4) = 0x10;
-
-	mem += 5;
-	// movabs rcx, 928182171271
-	*(WORD*)(mem + 0) = 0xB948;
-	*(QWORD*)(mem + 2) = (QWORD)ctx;
-
-	mem += 10;
-	// sub rsp, 28
-	*(BYTE*)(mem + 0) = 0x48;
-	*(BYTE*)(mem + 1) = 0x83;
-	*(BYTE*)(mem + 2) = 0xEC;
-	*(BYTE*)(mem + 3) = 0x28;
-	// duk_get_global_string(ctx, currentName);
-	*(BYTE*)(mem + 4) = 0xE8;
-	*(DWORD*)(mem + 5) = ((QWORD)&duk_get_global_string - (mem + 4)) - 5;
-	// add rsp, 28
-	*(BYTE*)(mem + 9) = 0x48;
-	*(BYTE*)(mem + 10) = 0x83;
-	*(BYTE*)(mem + 11) = 0xC4;
-	*(BYTE*)(mem + 12) = 0x28;
-
-	mem += 13;
-	// mov rbx, qword ptr ss : [rsp + 24] = 4 * 3 = 12 .... 8 * 3 = 24
-	*(BYTE*)(mem + 0) = 0x48;
-	*(BYTE*)(mem + 1) = 0x8B;
-	*(BYTE*)(mem + 2) = 0x5C;
-	*(BYTE*)(mem + 3) = 0x24;
-	*(BYTE*)(mem + 4) = 0x18;
-
-	mem += 5;
-	// mov EDI, EBX
-	*(WORD*)(mem + 0) = 0xDF89;
-
-	mem += 2;
-	// if (num_args > 0) {
-		// test EDI, EDI
-		*(WORD*)(mem + 0) = 0xFF85;
-
-		// jmp fuera if
-		*(BYTE*)(mem + 2) = 0x74;
-		*(BYTE*)(mem + 3) = 0x1C;  // Distancia hasta call_duktape - 2 (0-128 ----> / 128 - 255 <-------)
-
-		// pop RDX
-		*(BYTE*)(mem + 4) = 0x5A;
-
-		// movabs rcx, 928182171271
-		*(WORD*)(mem + 5) = 0xB948;
-		*(QWORD*)(mem + 7) = (QWORD)ctx;
-
-		// sub rsp, 28
-		*(BYTE*)(mem + 15) = 0x48;
-		*(BYTE*)(mem + 16) = 0x83;
-		*(BYTE*)(mem + 17) = 0xEC;
-		*(BYTE*)(mem + 18) = 0x28;
-		// duk_push_int(ctx, argVal);
-		*(BYTE*)(mem + 19) = 0xE8;
-		*(DWORD*)(mem + 20) = ((QWORD)&duk_push_pointer - (mem + 19)) - 5;
-		// add rsp, 28
-		*(BYTE*)(mem + 24) = 0x48;
-		*(BYTE*)(mem + 25) = 0x83;
-		*(BYTE*)(mem + 26) = 0xC4;
-		*(BYTE*)(mem + 27) = 0x28;
-
-		// dec EDI
-		*(WORD*)(mem + 28) = 0xCFFF;
-
-		*(BYTE*)(mem + 30) = 0x74;
-		*(BYTE*)(mem + 31) = 0x01;
-	// }
-
-	*(BYTE*)(mem + 32) = 0x59;	
-
-	mem += 33;
-	// if (num_args > 0) {
-		// test EDI, EDI
-		*(WORD*)(mem + 0) = 0xFF85;
-
-		// jmp fuera if
-		*(BYTE*)(mem + 2) = 0x74;
-		*(BYTE*)(mem + 3) = 0x1C;  // Distancia hasta call_duktape - 2 (0-128 ----> / 128 - 255 <-------)
-
-		// pop RDX
-		*(BYTE*)(mem + 4) = 0x5A;
-
-		// movabs rcx, 928182171271
-		*(WORD*)(mem + 5) = 0xB948;
-		*(QWORD*)(mem + 7) = (QWORD)ctx;
-
-		// sub rsp, 28
-		*(BYTE*)(mem + 15) = 0x48;
-		*(BYTE*)(mem + 16) = 0x83;
-		*(BYTE*)(mem + 17) = 0xEC;
-		*(BYTE*)(mem + 18) = 0x28;
-		// duk_push_int(ctx, argVal);
-		*(BYTE*)(mem + 19) = 0xE8;
-		*(DWORD*)(mem + 20) = ((QWORD)&duk_push_pointer - (mem + 19)) - 5;
-		// add rsp, 28
-		*(BYTE*)(mem + 24) = 0x48;
-		*(BYTE*)(mem + 25) = 0x83;
-		*(BYTE*)(mem + 26) = 0xC4;
-		*(BYTE*)(mem + 27) = 0x28;
-
-		// dec EDI
-		*(WORD*)(mem + 28) = 0xCFFF;
-
-		*(BYTE*)(mem + 30) = 0x74;
-		*(BYTE*)(mem + 31) = 0x01;
-	// }
-
-	*(BYTE*)(mem + 32) = 0x59;
-
-	mem += 33;
-	// if (num_args > 0) {
-		// test EDI, EDI
-		*(WORD*)(mem + 0) = 0xFF85;
-
-		// jmp fuera if
-		*(BYTE*)(mem + 2) = 0x74;
-		*(BYTE*)(mem + 3) = 0x1C;  // Distancia hasta call_duktape - 2 (0-128 ----> / 128 - 255 <-------)
-
-		// MOV RDX, R8
-		*(BYTE*)(mem + 4) = 0x4C;
-		*(BYTE*)(mem + 5) = 0x89;
-		*(BYTE*)(mem + 6) = 0xC2;
-		
-		// movabs rcx, 928182171271
-		*(WORD*)(mem + 7) = 0xB948;
-		*(QWORD*)(mem + 9) = (QWORD)ctx;
-
-		// sub rsp, 28
-		*(BYTE*)(mem + 17) = 0x48;
-		*(BYTE*)(mem + 18) = 0x83;
-		*(BYTE*)(mem + 19) = 0xEC;
-		*(BYTE*)(mem + 20) = 0x28;
-		// duk_push_int(ctx, argVal);
-		*(BYTE*)(mem + 21) = 0xE8;
-		*(DWORD*)(mem + 22) = ((QWORD)&duk_push_pointer - (mem + 21)) - 5;
-		// add rsp, 28
-		*(BYTE*)(mem + 26) = 0x48;
-		*(BYTE*)(mem + 27) = 0x83;
-		*(BYTE*)(mem + 28) = 0xC4;
-		*(BYTE*)(mem + 29) = 0x28;
-
-		// dec EDI
-		*(WORD*)(mem + 30) = 0xCFFF;
-	// }
-
-	mem += 32;
-	// if (num_args > 0) {
-		// test EDI, EDI
-		*(WORD*)(mem + 0) = 0xFF85;
-
-		// jmp fuera if
-		*(BYTE*)(mem + 2) = 0x74;
-		*(BYTE*)(mem + 3) = 0x1C;  // Distancia hasta call_duktape - 2 (0-128 ----> / 128 - 255 <-------)
-
-		// MOV RDX, R8
-		*(BYTE*)(mem + 4) = 0x4C;
-		*(BYTE*)(mem + 5) = 0x89;
-		*(BYTE*)(mem + 6) = 0xCA;
-
-		// movabs rcx, 928182171271
-		*(WORD*)(mem + 7) = 0xB948;
-		*(QWORD*)(mem + 9) = (QWORD)ctx;
-
-		// sub rsp, 28
-		*(BYTE*)(mem + 17) = 0x48;
-		*(BYTE*)(mem + 18) = 0x83;
-		*(BYTE*)(mem + 19) = 0xEC;
-		*(BYTE*)(mem + 20) = 0x28;
-		// duk_push_int(ctx, argVal);
-		*(BYTE*)(mem + 21) = 0xE8;
-		*(DWORD*)(mem + 22) = ((QWORD)&duk_push_pointer - (mem + 21)) - 5;
-		// add rsp, 28
-		*(BYTE*)(mem + 26) = 0x48;
-		*(BYTE*)(mem + 27) = 0x83;
-		*(BYTE*)(mem + 28) = 0xC4;
-		*(BYTE*)(mem + 29) = 0x28;
-
-		// dec EDI
-		*(WORD*)(mem + 30) = 0xCFFF;
-	// }
-
-	mem += 32;
-	// for each argument
-loop_args:
-	// test EDI, EDI
-	*(WORD*)(mem + 0) = 0xFF85;
-	// je call_duktape
-	*(BYTE*)(mem + 2) = 0x74;
-	*(BYTE*)(mem + 3) = 0x2A;  // Distancia hasta call_duktape - 2 (0-128 ----> / 128 - 255 <-------)
-
-	// Cada parametro = 8 bytes ... 1, 2, 3 * 8 = 8, 16, 24 ...
-	// mov RAX, 8
-	*(BYTE*)(mem + 4) = 0x48;
-	*(BYTE*)(mem + 5) = 0xC7;
-	*(BYTE*)(mem + 6) = 0xC0;
-	*(DWORD*)(mem + 7) = 8;
-
-	// imul EAX, EDI
-	*(BYTE*)(mem + 11) = 0x0F;
-	*(BYTE*)(mem + 12) = 0xAF;
-	*(BYTE*)(mem + 13) = 0xC7;
-
-	// mov rcx, qword ptr [rbp + rax + 0x10]
-	*(BYTE*)(mem + 14) = 0x48;
-	*(BYTE*)(mem + 15) = 0x8B;
-	*(BYTE*)(mem + 16) = 0x4C;
-	*(BYTE*)(mem + 17) = 0x05;
-	*(BYTE*)(mem + 18) = 0x10;
-	
-	// movabs rcx, 928182171271
-	*(WORD*)(mem + 19) = 0xB948;
-	*(QWORD*)(mem + 21) = (QWORD)ctx;
-
-	// sub rsp, 28
-	*(BYTE*)(mem + 29) = 0x48;
-	*(BYTE*)(mem + 30) = 0x83;
-	*(BYTE*)(mem + 31) = 0xEC;
-	*(BYTE*)(mem + 32) = 0x28;
-	// duk_push_int(ctx, argVal);
-	*(BYTE*)(mem + 33) = 0xE8;
-	*(DWORD*)(mem + 34) = ((QWORD)&duk_push_pointer - (mem + 33)) - 5;
-	// add rsp, 28
-	*(BYTE*)(mem + 38) = 0x48;
-	*(BYTE*)(mem + 39) = 0x83;
-	*(BYTE*)(mem + 40) = 0xC4;
-	*(BYTE*)(mem + 41) = 0x28;
-
-	// dec EDI
-	*(WORD*)(mem + 42) = 0xCFFF;
-
-	// jmp loop_args
-	*(BYTE*)(mem + 44) = 0xEB;
-	*(BYTE*)(mem + 45) = 0xD2;
-
-call_duktape:
-	// mov rdx, rbx
-	*(BYTE*)(mem + 46) = 0x48;
-	*(BYTE*)(mem + 47) = 0x89;
-	*(BYTE*)(mem + 48) = 0xDA;
-
-	// movabs rcx, 928182171271
-	*(WORD*)(mem + 49) = 0xB948;
-	*(QWORD*)(mem + 51) = (QWORD)ctx;
-
-	// sub rsp, 28
-	*(BYTE*)(mem + 59) = 0x48;
-	*(BYTE*)(mem + 60) = 0x83;
-	*(BYTE*)(mem + 61) = 0xEC;
-	*(BYTE*)(mem + 62) = 0x28;
-	// duk_pcall(ctx, numArgs);
-	*(BYTE*)(mem + 63) = 0xE8;
-	*(DWORD*)(mem + 64) = ((QWORD)&duk_pcall - (mem + 63)) - 5;
-	// add rsp, 28
-	*(BYTE*)(mem + 68) = 0x48;
-	*(BYTE*)(mem + 69) = 0x83;
-	*(BYTE*)(mem + 70) = 0xC4;
-	*(BYTE*)(mem + 71) = 0x28;
-
-	// add RSP, 16
-	*(BYTE*)(mem + 72) = 0x48;
-	*(BYTE*)(mem + 73) = 0x83;
-	*(BYTE*)(mem + 74) = 0xC4;
-	*(BYTE*)(mem + 75) = 0x10;
-
-	// POP RBP
-	*(BYTE*)(mem + 76) = 0x5D;
-
-	// RET
-	*(BYTE*)(mem + 77) = 0xC3;
-
-	return (void*)mem_start;
+	return redirectDetour;
 }
 
 duk_ret_t createRedirection(duk_context *ctx)
 {
-	void* mem = CreateJSRedirect();
+	Allocator* allocator = new Allocator();
+	MemoryFunction* mem = getRedirect(allocator);
 
 	int n = duk_get_top(ctx);  /* #args */
 
@@ -378,44 +132,34 @@ duk_ret_t createRedirection(duk_context *ctx)
 	duk_put_global_string(ctx, name);
 
 	// 5 push + 1 push + 2 mov + 2 push + 5 push + 5 call + 3 retn
-	DWORD_PTR codecave = (DWORD_PTR)GetNearMemory(NULL, 34);
-	if (codecave == NULL)
+	MemoryFunction* codecave_ptr = new MemoryFunction(allocator, 34);
+	MemoryFunction& codecave = *codecave_ptr;
+
+	if (codecave.get() == NULL)
 	{
 		duk_push_boolean(ctx, false);
 		return 1;  /* one return value */
 	}
 
-	// mov RAX, address
-	// push RAX
-	*(BYTE*)(codecave + 0) = 0x48;
-	*(BYTE*)(codecave + 1) = 0xB8;
-	*(QWORD*)(codecave + 2) = (DWORD_PTR)codecave + 33;
-	*(BYTE*)(codecave + 10) = 0x50;
+	// Setup return point
+	mov_rax_abs(codecave, (uint64_t)codecave.get() + 33);
+	push_rax(codecave);
 
-	// PUSH RBP
-	// MOV RBP, RSP
-	*(BYTE*)(codecave + 11) = 0x55;
-	*(BYTE*)(codecave + 12) = 0x48;
-	*(BYTE*)(codecave + 13) = 0x89;
-	*(BYTE*)(codecave + 14) = 0xE5;
+	push_rbp(codecave);
+	mov_rbp_rsp(codecave);
 
 	// PUSH numArgs
-	*(BYTE*)(codecave + 15) = 0x6A;
-	*(BYTE*)(codecave + 16) = numArgs;
+	push(codecave, (uint8_t)numArgs);
 
 	// PUSH name
-	*(BYTE*)(codecave + 17) = 0x48;
-	*(BYTE*)(codecave + 18) = 0xB8;
-	*(QWORD*)(codecave + 19) = (QWORD)name;
-	*(BYTE*)(codecave + 27) = 0x50;
+	mov_rax_abs(codecave, (uint64_t)name);
+	push_rax(codecave);
 
 	// JMP WrapJS
-	QWORD currentAddr = codecave + 28;
-	*(BYTE*)(currentAddr) = 0xE9;
-	*(DWORD*)(currentAddr + 1) = ((DWORD_PTR)mem - currentAddr) - 5;
+	jmp_long(codecave, mem->start());
 
 	// ret
-	*(BYTE*)(codecave + 33) = 0xC3;
+	ret(codecave);
 
 	// jmp codecave
 	// CreateHook((void*)address, (void*)codecave, false);
@@ -427,7 +171,7 @@ duk_ret_t createRedirection(duk_context *ctx)
 	// JMP dest
 	*(BYTE*)(address + 0) = 0x48;
 	*(BYTE*)(address + 1) = 0xB8;
-	*(QWORD*)(address + 2) = (DWORD_PTR)codecave;
+	*(QWORD*)(address + 2) = (DWORD_PTR)codecave.start();
 	*(BYTE*)(address + 10) = 0xFF;
 	*(BYTE*)(address + 11) = 0xE0;
 
@@ -438,73 +182,74 @@ duk_ret_t createRedirection(duk_context *ctx)
 }
 
 #else
-__declspec(naked) void WrapJSRedirect()
+
+MemoryFunction* getRedirect(Allocator* allocator)
 {
-    // Save some registers
-    __asm push EBX
-    __asm push EDI
+	if (!redirectDetour)
+	{
+		redirectDetour = new MemoryFunction(allocator, 245);
+		MemoryFunction& fn = *redirectDetour;
 
-    // duk_get_global_string(ctx, currentName);
-    __asm push DWORD PTR SS:[ESP + 8]           // currentName
-    __asm push ctx
-    __asm call duk_get_global_string
-    __asm add ESP, 8                            // Pop arguments
+		push_ebx(fn);
+		push_edi(fn);
 
-    __asm mov EBX, DWORD PTR SS:[ESP + 12]      // EBX = numArgs
-    __asm mov EDI, EBX                          // EDI = counter
+		push_dword_ptr_esp(fn, 8);
+		push(fn, (uint32_t)ctx);
+		call(fn, duk_get_global_string);
+		add_esp(fn, 8);
 
-    // for each argument
-loop_args:
-    __asm test EDI, EDI                         // Ended?
-    __asm je call_duktape
+		mov_ebx_dword_ptr_esp(fn, 12);
+		mov_edi_ebx(fn);
 
-    // Cada parametro = 4 bytes ... 1, 2, 3 * 4 = 4, 8, 12 ...
-    __asm mov EAX, 4
-    __asm imul EAX, EDI
-    __asm mov EAX, DWORD PTR SS:[EBP + 8 + EAX] // PUSH ret + PUSH EBP
+		// for each argument
+		// {
+			test_edi_edi(fn);
+			je_short(fn, 32);
 
-    // duk_push_int(ctx, argVal);
-    __asm push EAX
-    __asm push ctx
-    __asm call duk_push_int
-    __asm add ESP, 8                            // Pop arguments
+			// Cada parametro = 4 bytes ... 1, 2, 3 * 4 = 4, 8, 12 ...
+			mov_eax_abs(fn, 4);
+			imul_eax_edi(fn);
+			mov_eax_dword_ptr_ebp_eax(fn, 8);
 
-    __asm dec EDI
-    __asm jmp loop_args
+			// duk_push_int(ctx, argVal);
+			push_eax(fn);
+			push(fn, (uint32_t)ctx);
+			call(fn, duk_push_pointer);
+			add_esp(fn, 8);
 
-call_duktape:
-    //duk_pcall(ctx, numArgs);
-    __asm push EBX
-    __asm push ctx
-    __asm call duk_pcall
-    __asm add ESP, 8                            // Pop arguments
+			dec_edi(fn);
+			jmp_short(fn, -32);
+		// }
 
-    // Get returned value
-    __asm push -1
-    __asm push ctx
-    __asm call duk_to_int
-    __asm add ESP, 8                            // Pop arguments
+		push_ebx(fn);
+		push(fn, (uint32_t)ctx);
+		call(fn, duk_pcall);
+		add_esp(fn, 8);
 
-    // Restore resigters
-    __asm pop EDI
-    __asm pop EBX
+		push(fn, (uint8_t)-1);
+		push(fn, (uint32_t)ctx);
+		call(fn, duk_to_int);
+		add_esp(fn, 8);
 
-    // Pop currentName, numArgs
-    __asm add ESP, 8
+		pop_edi(fn);
+		pop_ebx(fn);
+		add_esp(fn, 8);
+		pop_ebp(fn);
+		ret(fn);
+	}
 
-    // Restore EBP
-    __asm pop EBP
-
-    // Return to fake address
-    __asm ret
+	return redirectDetour;
 }
 
 duk_ret_t createRedirection(duk_context *ctx)
 {
+	Allocator* allocator = new Allocator();
+	MemoryFunction* mem = getRedirect(allocator);
+
     int n = duk_get_top(ctx);  /* #args */
 
     // Address
-    DWORD address = (DWORD)duk_to_int(ctx, 0);
+    DWORD address = (DWORD)duk_to_pointer(ctx, 0);
 
     // Number of parameters
     int numArgs = duk_to_int(ctx, 1);
@@ -529,47 +274,41 @@ duk_ret_t createRedirection(duk_context *ctx)
     duk_put_global_string(ctx, name);
 
     // 5 push + 1 push + 2 mov + 2 push + 5 push + 5 call + 3 retn
-    DWORD codecave = (DWORD)VirtualAlloc(NULL, 23, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-    if (codecave == NULL)
+	MemoryFunction* codecave_ptr = new MemoryFunction(allocator, 23);
+	MemoryFunction& codecave = *codecave_ptr;
+    if (codecave.get() == NULL)
     {
         duk_push_boolean(ctx, false);
         return 1;  /* one return value */
     }
 
-    // PUSH retPoint (codecave + 20)
-    *(BYTE*)(codecave + 0) = 0x68;
-    *(DWORD*)(codecave + 1) = codecave + 20;
+	// Fake return point
+	push(codecave, (uint32_t)codecave.get() + 20);
 
-    // PUSH EBP
-    // MOV EBP, ESP
-    *(BYTE*)(codecave + 5) = 0x55;
-    *(WORD*)(codecave + 6) = 0xEC8B;
+	// Save stack pointer
+	push_ebp(codecave);
+	mov_ebp_esp(codecave);
 
     // PUSH numArgs
-    *(BYTE*)(codecave + 8) = 0x6A;
-    *(BYTE*)(codecave + 9) = numArgs;
+	push(codecave, (uint8_t)numArgs);
 
     // PUSH name
-    *(BYTE*)(codecave + 10) = 0x68;
-    *(DWORD*)(codecave + 11) = (DWORD)name;
+	push(codecave, (uint32_t)name);
 
     // JMP WrapJS
-    DWORD currentAddr = codecave + 15;
-    *(BYTE*)(currentAddr) = 0xE9;
-    *(DWORD*)(currentAddr + 1) = ((DWORD)&WrapJSRedirect - currentAddr) - 5;
+	jmp_long(codecave, mem->start());
 
     // RETN args*4
     if (convention == CallConvention::STDCALL)
     {
-        *(BYTE*)(codecave + 20) = 0xC2;
-        *(WORD*)(codecave + 21) = numArgs * 4;
+		retn(codecave, numArgs);
     }
     else if (convention == CallConvention::CDECLCALL)
     {
-        *(BYTE*)(codecave + 20) = 0xC3;
+		ret(codecave);
     }
 
-    CreateHook((void*)address, (void*)codecave, false);
+    CreateHook((void*)address, (void*)codecave.start(), false);
     duk_push_boolean(ctx, true);
     return 1;  /* one return value */
 }

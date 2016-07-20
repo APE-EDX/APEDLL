@@ -1,6 +1,8 @@
 
 set(CPP_SOURCES
     main.cpp        common.hpp
+	asm.cpp			asm.hpp asm_classes.hpp
+	asm_x86.hpp		asm_x64.hpp
     helpers.cpp     helpers.hpp
     redirect.cpp    redirect.hpp
     utils.cpp       utils.hpp
