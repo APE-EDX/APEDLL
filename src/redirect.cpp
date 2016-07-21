@@ -467,7 +467,7 @@ void InitializeDuktape_Redirect(duk_context *ctx) {
 	call(fn, duk_push_pointer);
 
 	pop_rbp(fn);
-	mov_eax_rax(fn, (uint32_t)1);
+	mov_rax_abs(fn, (uint32_t)1);
 	ret(fn);
 #else
 	mov_ecx_dword_ptr_esp(fn, 4);
