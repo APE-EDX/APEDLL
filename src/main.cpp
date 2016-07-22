@@ -70,6 +70,18 @@ BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID reserved)
         duk_push_c_function(ctx, addressOf, DUK_VARARGS);
         duk_put_global_string(ctx, "cpp_addressOf");
 
+		duk_push_c_function(ctx, charCodeAt, DUK_VARARGS);
+		duk_put_global_string(ctx, "cpp_charCodeAt");
+
+		duk_push_c_function(ctx, writeMemory, DUK_VARARGS);
+		duk_put_global_string(ctx, "cpp_writeMemory");
+
+		duk_push_c_function(ctx, readMemory, DUK_VARARGS);
+		duk_put_global_string(ctx, "cpp_readMemory");
+
+		duk_push_c_function(ctx, readString, DUK_VARARGS);
+		duk_put_global_string(ctx, "cpp_readString");
+
         duk_push_c_function(ctx, WrapCreateConsole, DUK_VARARGS);
         duk_put_global_string(ctx, "CreateConsole");
 

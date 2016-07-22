@@ -4,8 +4,13 @@
 #include <duktape.h>
 
 template <typename F> F CreateHook(void* orig, F dest);
-duk_ret_t addressOf(duk_context *ctx);
 
+duk_ret_t addressOf(duk_context *ctx);
+duk_ret_t charCodeAt(duk_context *ctx);
+
+duk_ret_t writeMemory(duk_context *ctx);
+duk_ret_t readMemory(duk_context *ctx);
+duk_ret_t readString(duk_context *ctx);
 
 // Implementations
 

@@ -416,12 +416,42 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	duk_push_pointer(ctx, (void*)call_org.start());
 	duk_put_prop_string(ctx, -2, "fn_ptr");
 
+	void* original = malloc(5);
+	memcpy(original, (void*)address, 5);
+	duk_push_this(ctx);
+	duk_push_pointer(ctx, original);
+	duk_put_prop_string(ctx, -2, "fn_org_bytes");
+
+	duk_push_this(ctx);
+	duk_push_pointer(ctx, (void*)address);
+	duk_put_prop_string(ctx, -2, "fn_org_addr");
+
     CreateHook((void*)address, (void*)codecave.start(), false);
     return 0;  /* undefined, default */
 }
 
 #endif
 
+duk_ret_t restoreRedirection(duk_context* ctx)
+{
+	duk_push_this(ctx);
+	duk_get_prop_string(ctx, -1, "fn_org_addr");
+	void* address = duk_to_pointer(ctx, -1);
+
+	duk_push_this(ctx);
+	duk_get_prop_string(ctx, -1, "fn_org_bytes");
+	void* original = duk_to_pointer(ctx, -1);
+
+	DWORD oldProtect;
+	VirtualProtect(address, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
+
+	memcpy(address, original, 5);
+
+	VirtualProtect(address, 5, oldProtect, &oldProtect);
+
+	duk_push_boolean(ctx, true);
+	return 1;
+}
 
 duk_ret_t createRedirection(duk_context *ctx)
 {
@@ -523,6 +553,9 @@ void InitializeDuktape_Redirect(duk_context *ctx) {
 	/* Set MyObject.prototype.init. */
 	duk_push_c_function(ctx, initializeRedirection, DUK_VARARGS);
 	duk_put_prop_string(ctx, -2, "init");
+
+	duk_push_c_function(ctx, restoreRedirection, DUK_VARARGS);
+	duk_put_prop_string(ctx, -2, "restore");
 
 	/* Set MyObject.prototype.fn. */
 	duk_push_c_function(ctx, (duk_c_function)redirectCallorigin->start(), DUK_VARARGS);
