@@ -63,6 +63,7 @@ duk_ret_t readMemory(duk_context *ctx)
 {
 	uintptr_t address = getPointer(ctx, 0);
 	uintptr_t offset = duk_to_int(ctx, 1);
+
 	duk_push_pointer(ctx, (void*)(*(uintptr_t*)(address + offset)));
 	return 1;
 }
@@ -72,7 +73,7 @@ duk_ret_t readString(duk_context *ctx)
 	uintptr_t address = getPointer(ctx, 0);
 	uintptr_t offset = duk_to_int(ctx, 1);
 
-	if (duk_get_top(ctx) > 1)
+	if (duk_get_top(ctx) > 2)
 	{
 		uint32_t len = (uint32_t)duk_to_int(ctx, 2);
 		duk_push_lstring(ctx, (char*)(address + offset), len);

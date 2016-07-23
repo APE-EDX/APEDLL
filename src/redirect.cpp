@@ -123,10 +123,10 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	CallConvention convention = (CallConvention)duk_to_int(ctx, 3);
 
 	// Fastcall only
-	//if (convention != CallConvention::FASTCALL)
+	if (convention != CallConvention::FASTCALL)
 	{
-		//duk_push_boolean(ctx, false);
-		//return 1;  /* one return value */
+		duk_push_boolean(ctx, false);
+		return 1;  /* one return value */
 	}
 
 	// Callback
