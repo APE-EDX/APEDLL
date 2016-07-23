@@ -9,6 +9,11 @@ inline void pop_rcx(MemoryFunction& fn) { fn << (uint8_t)0x59; }
 inline void push_rbp(MemoryFunction& fn) { fn << (uint8_t)0x55; }
 inline void pop_rbp(MemoryFunction& fn) { fn << (uint8_t)0x5D; }
 
+inline void push_r8(MemoryFunction& fn) { fn << (uint16_t)0x5041; }
+inline void pop_r8(MemoryFunction& fn) { fn << (uint16_t)0x5841; }
+inline void push_r9(MemoryFunction& fn) { fn << (uint16_t)0x5141; }
+inline void pop_r9(MemoryFunction& fn) { fn << (uint16_t)0x5941; }
+
 inline void mov_rdx_r8(MemoryFunction& fn)
 {
 	fn << (uint8_t)0x4C;

@@ -20,19 +20,21 @@ MemoryFunction* getRedirect(Allocator* allocator)
 		redirectDetour = new MemoryFunction(allocator, 245);
 		MemoryFunction& fn = *redirectDetour;
 
+		push_r9(fn);
+		push_r8(fn);
 		push_rdx(fn);
 		push_rcx(fn);
-		mov_rdx_qword_ptr_rsp(fn, 0x10);
+		mov_rdx_qword_ptr_rsp(fn, 0x20);
 		mov_rcx_abs(fn, (uint64_t)ctx);
 
 		call(fn, duk_get_global_string);
 
-		mov_rbx_qword_ptr_rsp(fn, 0x18);
+		mov_rbx_qword_ptr_rsp(fn, 0x28);
 
 		mov_edi_ebx(fn);
 
-		// Arguments 1 & 2 (RCX & RDX)
-		for (int i = 0; i < 2; ++i)
+		// Arguments 1 & 2 & 3 & 4 (RCX & RDX & R8 & R9)
+		for (int i = 0; i < 4; ++i)
 		{
 			// if (num_args > 0) {
 				test_edi_edi(fn);
@@ -48,21 +50,6 @@ MemoryFunction* getRedirect(Allocator* allocator)
 			// }
 			// else {
 				pop_rcx(fn);
-			// }
-		}
-
-		// Arguments 3 & 4 (R8 & R9)
-		for (int i = 0; i < 2; ++i)
-		{
-			// if (num_args > 0) {
-				test_edi_edi(fn);
-				je_short(fn, 30);
-
-				mov_rdx_r8(fn);
-				mov_rcx_abs(fn, (uint64_t)ctx);
-				call(fn, duk_push_pointer);
-
-				dec_edi(fn);
 			// }
 		}
 
@@ -172,10 +159,10 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	push_rbp(call_org);
 	mov_rbp_rsp(call_org);
 
-	for (int i = numArgs - 1; i >= 0; --i)
+	for (int i = 0; i < numArgs; ++i)
 	{
 		push_rcx(call_org);
-		mov_rdx_abs(call_org, 0);
+		mov_rdx_abs(call_org, i);
 		call(call_org, duk_to_pointer);
 		pop_rcx(call_org);
 
@@ -217,6 +204,20 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	duk_push_this(ctx);
 	duk_push_pointer(ctx, (void*)call_org.start());
 	duk_put_prop_string(ctx, -2, "fn_ptr");
+
+	void* original = malloc(15);
+	memcpy(original, (void*)address, 15);
+	duk_push_this(ctx);
+	duk_push_pointer(ctx, original);
+	duk_put_prop_string(ctx, -2, "fn_org_bytes");
+
+	duk_push_this(ctx);
+	duk_push_int(ctx, 15);
+	duk_put_prop_string(ctx, -2, "fn_org_total");
+
+	duk_push_this(ctx);
+	duk_push_pointer(ctx, (void*)address);
+	duk_put_prop_string(ctx, -2, "fn_org_addr");
 
 
 	// jmp codecave
@@ -423,6 +424,10 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	duk_put_prop_string(ctx, -2, "fn_org_bytes");
 
 	duk_push_this(ctx);
+	duk_push_int(ctx, 5);
+	duk_put_prop_string(ctx, -2, "fn_org_total");
+
+	duk_push_this(ctx);
 	duk_push_pointer(ctx, (void*)address);
 	duk_put_prop_string(ctx, -2, "fn_org_addr");
 
@@ -442,12 +447,16 @@ duk_ret_t restoreRedirection(duk_context* ctx)
 	duk_get_prop_string(ctx, -1, "fn_org_bytes");
 	void* original = duk_to_pointer(ctx, -1);
 
+	duk_push_this(ctx);
+	duk_get_prop_string(ctx, -1, "fn_org_total");
+	int total = duk_to_int(ctx, -1);
+
 	DWORD oldProtect;
-	VirtualProtect(address, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
+	VirtualProtect(address, total, PAGE_EXECUTE_READWRITE, &oldProtect);
 
-	memcpy(address, original, 5);
+	memcpy(address, original, total);
 
-	VirtualProtect(address, 5, oldProtect, &oldProtect);
+	VirtualProtect(address, total, oldProtect, &oldProtect);
 
 	duk_push_boolean(ctx, true);
 	return 1;
