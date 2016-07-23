@@ -42,7 +42,7 @@ F CreateHook(void* orig, F dest, bool createCodecave=false, int len=5)
 
 	for (int i = 5; i < len; ++i)
 	{
-		*(BYTE*)(orig + i) = 0x90;
+		*(BYTE*)((DWORD)orig + i) = 0x90;
 	}
 
     VirtualProtect((LPVOID)orig, 5, oldProtect, &oldProtect);
