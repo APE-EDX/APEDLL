@@ -2,17 +2,36 @@
 
 #include "asm_classes.hpp"
 
-inline void push_rdx(MemoryFunction& fn) { fn << (uint8_t)0x52; }
-inline void pop_rdx(MemoryFunction& fn) { fn << (uint8_t)0x5A; }
 inline void push_rcx(MemoryFunction& fn) { fn << (uint8_t)0x51; }
 inline void pop_rcx(MemoryFunction& fn) { fn << (uint8_t)0x59; }
+
+inline void push_rdx(MemoryFunction& fn) { fn << (uint8_t)0x52; }
+inline void pop_rdx(MemoryFunction& fn) { fn << (uint8_t)0x5A; }
+
+inline void push_rbx(MemoryFunction& fn) { fn << (uint8_t)0x53; }
+inline void pop_rbx(MemoryFunction& fn) { fn << (uint8_t)0x5B; }
+
 inline void push_rbp(MemoryFunction& fn) { fn << (uint8_t)0x55; }
 inline void pop_rbp(MemoryFunction& fn) { fn << (uint8_t)0x5D; }
 
+inline void push_rdi(MemoryFunction& fn) { fn << (uint8_t)0x57; }
+inline void pop_rdi(MemoryFunction& fn) { fn << (uint8_t)0x5F; }
+
 inline void push_r8(MemoryFunction& fn) { fn << (uint16_t)0x5041; }
 inline void pop_r8(MemoryFunction& fn) { fn << (uint16_t)0x5841; }
+
 inline void push_r9(MemoryFunction& fn) { fn << (uint16_t)0x5141; }
 inline void pop_r9(MemoryFunction& fn) { fn << (uint16_t)0x5941; }
+
+inline void push_r10(MemoryFunction& fn) { fn << (uint16_t)0x5241; }
+inline void pop_r10(MemoryFunction& fn) { fn << (uint16_t)0x5A41; }
+
+inline void xor_r10_r10(MemoryFunction& fn)
+{
+	fn << (uint8_t)0x4D;
+	fn << (uint8_t)0x31;
+	fn << (uint8_t)0xD2;
+}
 
 inline void mov_rdx_r8(MemoryFunction& fn)
 {
@@ -135,9 +154,23 @@ inline void test_edi_edi(MemoryFunction& fn)
 	fn << (uint16_t)0xFF85;
 }
 
+inline void cmp_r10_rdi(MemoryFunction& fn)
+{
+	fn << (uint8_t)0x49;
+	fn << (uint8_t)0x39;
+	fn << (uint8_t)0xFA;
+}
+
 inline void dec_edi(MemoryFunction& fn)
 {
 	fn << (uint16_t)0xCFFF;
+}
+
+inline void inc_r10(MemoryFunction& fn)
+{
+	fn << (uint8_t)0x49;
+	fn << (uint8_t)0xFF;
+	fn << (uint8_t)0xC2;
 }
 
 inline void sub_rsp_abs(MemoryFunction& fn, uint8_t val)
@@ -201,6 +234,14 @@ inline void imul_eax_edi(MemoryFunction& fn)
 	fn << (uint8_t)0x0F;
 	fn << (uint8_t)0xAF;
 	fn << (uint8_t)0xC7;
+}
+
+inline void imul_rax_r10(MemoryFunction& fn)
+{
+	fn << (uint8_t)0x49;
+	fn << (uint8_t)0x0F;
+	fn << (uint8_t)0xAF;
+	fn << (uint8_t)0xC2;
 }
 
 inline void ret(MemoryFunction& fn)

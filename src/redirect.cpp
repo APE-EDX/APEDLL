@@ -20,16 +20,19 @@ MemoryFunction* getRedirect(Allocator* allocator)
 		redirectDetour = new MemoryFunction(allocator, 245);
 		MemoryFunction& fn = *redirectDetour;
 
+		push_rbx(fn);
+		push_rdi(fn);
+
 		push_r9(fn);
 		push_r8(fn);
 		push_rdx(fn);
 		push_rcx(fn);
-		mov_rdx_qword_ptr_rsp(fn, 0x20);
+		mov_rdx_qword_ptr_rsp(fn, 0x30);
 		mov_rcx_abs(fn, (uint64_t)ctx);
 
 		call(fn, duk_get_global_string);
 
-		mov_rbx_qword_ptr_rsp(fn, 0x28);
+		mov_rbx_qword_ptr_rsp(fn, 0x38);
 
 		mov_edi_ebx(fn);
 
@@ -53,24 +56,27 @@ MemoryFunction* getRedirect(Allocator* allocator)
 			// }
 		}
 
+		xor_r10_r10(fn);
+
 		// FIXME: This loop is inverted... see the 32 bits implementation
 		// For each argument (>= 5)
 		// {
-			test_edi_edi(fn);
-			je_short(fn, 45);
+			cmp_r10_rdi(fn);
+			je_short(fn, 50);
 
 			// Cada parametro = 8 bytes ... 1, 2, 3 * 8 = 8, 16, 24 ...
 			mov_rax_abs(fn, (uint32_t)8);
-			push_rax(fn);
-			imul_eax_edi(fn);
+			imul_rax_r10(fn);
 
-			mov_rdx_qword_ptr_rbp_rax(fn, 0x10);
+			mov_rdx_qword_ptr_rbp_rax(fn, 0x10 + 0x28); // 0x10 from previous pushes, 0x28 from shadow stack + ret
 			mov_rcx_abs(fn, (uint64_t)ctx);
+			push_r10(fn);
 			call(fn, duk_push_pointer);
+			pop_r10(fn);
 
-			dec_edi(fn);
+			inc_r10(fn);
 
-			jmp_short(fn, -45);
+			jmp_short(fn, -51);
 		//}
 
 		// call duktape
@@ -78,8 +84,15 @@ MemoryFunction* getRedirect(Allocator* allocator)
 		mov_rcx_abs(fn, (uint64_t)ctx);
 		call(fn, duk_pcall);
 
+		// Get returned value
+		mov_rdx_abs(fn, -1);
+		mov_rcx_abs(fn, (uint64_t)ctx);
+		call(fn, duk_to_pointer);
+
 		// Stack cleanup
-		add_rsp_abs(fn, 0x10);
+		pop_rdi(fn);
+		pop_rbx(fn);
+		add_rsp_abs(fn, 0x10); // pushed name + args
 		pop_rbp(fn);
 
 		// RET
@@ -119,6 +132,16 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	// Callback
 	duk_dup(ctx, 4);
 	duk_put_global_string(ctx, name);
+
+	int len = 12;
+	if (n > 5)
+	{
+		len = duk_to_int(ctx, 5);
+	}
+	else
+	{
+		// Static analysis to find the number of bytes
+	}
 
 	// 5 push + 1 push + 2 mov + 2 push + 5 push + 5 call + 3 retn
 	MemoryFunction* codecave_ptr = new MemoryFunction(allocator, 34);
@@ -186,17 +209,20 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 		mov_r9_qword_ptr_rsp(call_org, (numArgs - 4) * 8);
 	}
 
+	// Shadow space
+	sub_rsp_abs(call_org, 0x20);
+
 	// Return point
-	mov_rax_abs(call_org, (uint64_t)(call_org.get() + 31));
+	mov_rax_abs(call_org, (uint64_t)(call_org.get() + 28));
 	push_rax(call_org);
 
-	for (int i = 0; i < 15; ++i)
+	for (int i = 0; i < len; ++i)
 	{
 		call_org << *(BYTE*)(address + i);
 	}
-	jmp_long(call_org, (void*)(address + 15));
+	jmp_long(call_org, (void*)(address + len));
 
-	add_rsp_abs(call_org, numArgs * 8);
+	add_rsp_abs(call_org, numArgs * 8 + 0x20);
 	pop_rbp(call_org);
 	ret(call_org);
 
@@ -205,14 +231,14 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	duk_push_pointer(ctx, (void*)call_org.start());
 	duk_put_prop_string(ctx, -2, "fn_ptr");
 
-	void* original = malloc(15);
-	memcpy(original, (void*)address, 15);
+	void* original = malloc(len);
+	memcpy(original, (void*)address, len);
 	duk_push_this(ctx);
 	duk_push_pointer(ctx, original);
 	duk_put_prop_string(ctx, -2, "fn_org_bytes");
 
 	duk_push_this(ctx);
-	duk_push_int(ctx, 15);
+	duk_push_int(ctx, len);
 	duk_put_prop_string(ctx, -2, "fn_org_total");
 
 	duk_push_this(ctx);
@@ -226,7 +252,7 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	// Unprotect address
 	// TODO: It's 12 not 15
 	DWORD oldProtect;
-	VirtualProtect((LPVOID)address, 15, PAGE_EXECUTE_READWRITE, &oldProtect);
+	VirtualProtect((LPVOID)address, len, PAGE_EXECUTE_READWRITE, &oldProtect);
 
 	// JMP dest
 	*(BYTE*)(address + 0) = 0x48;
@@ -234,11 +260,13 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	*(QWORD*)(address + 2) = (DWORD_PTR)codecave.start();
 	*(BYTE*)(address + 10) = 0xFF;
 	*(BYTE*)(address + 11) = 0xE0;
-	*(BYTE*)(address + 12) = 0x90;
-	*(BYTE*)(address + 13) = 0x90;
-	*(BYTE*)(address + 14) = 0x90;
 
-	VirtualProtect((LPVOID)address, 15, oldProtect, &oldProtect);
+	for (int i = 12; i < len; ++i)
+	{
+		*(BYTE*)(address + i) = 0x90;
+	}
+
+	VirtualProtect((LPVOID)address, len, oldProtect, &oldProtect);
 
 	duk_push_boolean(ctx, true);
 	return 1;  /* one return value */
@@ -339,6 +367,16 @@ duk_ret_t initializeRedirection(duk_context *ctx)
     duk_dup(ctx, 4);
     duk_put_global_string(ctx, name);
 
+	int len = 5;
+	if (n > 5)
+	{
+		len = duk_to_int(ctx, 5);
+	}
+	else
+	{
+		// Static analysis to find the number of bytes
+	}
+
     // 5 push + 1 push + 2 mov + 2 push + 5 push + 5 call + 3 retn
 	MemoryFunction* codecave_ptr = new MemoryFunction(allocator, 23);
 	MemoryFunction& codecave = *codecave_ptr;
@@ -402,7 +440,7 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	{
 		call_org << *(BYTE*)(address + i);
 	}
-	jmp_long(call_org, (void*)(address + 5));
+	jmp_long(call_org, (void*)(address + len));
 
 	pop_ebp(call_org);
 
@@ -417,21 +455,21 @@ duk_ret_t initializeRedirection(duk_context *ctx)
 	duk_push_pointer(ctx, (void*)call_org.start());
 	duk_put_prop_string(ctx, -2, "fn_ptr");
 
-	void* original = malloc(5);
-	memcpy(original, (void*)address, 5);
+	void* original = malloc(len);
+	memcpy(original, (void*)address, len);
 	duk_push_this(ctx);
 	duk_push_pointer(ctx, original);
 	duk_put_prop_string(ctx, -2, "fn_org_bytes");
 
 	duk_push_this(ctx);
-	duk_push_int(ctx, 5);
+	duk_push_int(ctx, len);
 	duk_put_prop_string(ctx, -2, "fn_org_total");
 
 	duk_push_this(ctx);
 	duk_push_pointer(ctx, (void*)address);
 	duk_put_prop_string(ctx, -2, "fn_org_addr");
 
-    CreateHook((void*)address, (void*)codecave.start(), false);
+    CreateHook((void*)address, (void*)codecave.start(), false, len);
     return 0;  /* undefined, default */
 }
 

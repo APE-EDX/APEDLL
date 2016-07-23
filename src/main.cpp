@@ -67,6 +67,9 @@ BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID reserved)
         // Allow setHook to be called from inside JS
 		InitializeDuktape_Redirect(ctx);
 
+		duk_push_c_function(ctx, sizeOfPtr, 0);
+		duk_put_global_string(ctx, "ptrSize");
+
         duk_push_c_function(ctx, addressOf, DUK_VARARGS);
         duk_put_global_string(ctx, "cpp_addressOf");
 
