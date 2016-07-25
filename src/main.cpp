@@ -30,14 +30,39 @@ static void SocketRecv(ClientSocket* clientSocket)
     thr_idx = duk_push_thread(ctx);
     new_ctx = duk_get_context(ctx, thr_idx);
 
+	std::string oldBuffer = "";
+	uint16_t currentLen = -1;
+	bool isNew = true;
     while (1)
     {
         std::string buffer = clientSocket->recv();
+		oldBuffer += buffer;
 
-        duk_push_global_object(new_ctx);
-        duk_get_prop_string(new_ctx, -1, "onMessage");
-        duk_push_string(new_ctx, buffer.c_str());
-        duk_pcall(new_ctx, 1);
+		while (oldBuffer.length() >= 2)
+		{
+			if (isNew)
+			{
+				currentLen = (uint16_t)(((uint16_t)(uint8_t)oldBuffer[1] << 8) | (uint8_t)oldBuffer[0]);
+				isNew = false;
+			}
+
+			if (oldBuffer.length() >= currentLen + 2)
+			{
+				duk_push_global_object(new_ctx);
+				duk_get_prop_string(new_ctx, -1, "onMessage");
+				duk_push_string(new_ctx, oldBuffer.substr(2, currentLen).c_str());
+				duk_pcall(new_ctx, 1);
+
+				// Reset
+				oldBuffer = oldBuffer.substr(currentLen + 2);
+				currentLen = -1;
+				isNew = true;
+			}
+			else
+			{
+				break;
+			}
+		}
     }
 }
 
