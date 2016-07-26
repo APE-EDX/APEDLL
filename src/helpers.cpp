@@ -31,6 +31,13 @@ duk_ret_t charCodeAt(duk_context *ctx)
 	return 1;
 }
 
+duk_ret_t fromCharCode(duk_context *ctx)
+{
+	uint8_t code = (uint8_t)duk_to_int(ctx, 0);
+	duk_push_lstring(ctx, (char*)&code, 1);
+	return 1;
+}
+
 uintptr_t getPointer(duk_context* ctx, duk_idx_t idx)
 {
 	if (duk_is_pointer(ctx, idx))

@@ -101,6 +101,9 @@ BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID reserved)
 		duk_push_c_function(ctx, charCodeAt, DUK_VARARGS);
 		duk_put_global_string(ctx, "cpp_charCodeAt");
 
+		duk_push_c_function(ctx, fromCharCode, DUK_VARARGS);
+		duk_put_global_string(ctx, "cpp_fromCharCode");
+
 		duk_push_c_function(ctx, writeMemory, DUK_VARARGS);
 		duk_put_global_string(ctx, "cpp_writeMemory");
 

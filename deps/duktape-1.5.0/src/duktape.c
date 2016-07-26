@@ -44802,7 +44802,9 @@ duk_hstring *duk__alloc_init_hstring(duk_heap *heap,
 	DUK_HSTRING_SET_HASH(res, strhash);
 	DUK_HSTRING_SET_BYTELEN(res, blen);
 
-	clen = (duk_uint32_t) duk_unicode_unvalidated_utf8_length(str, (duk_size_t) blen);
+	// TODO: Is there a cleaner way?
+	//clen = (duk_uint32_t) duk_unicode_unvalidated_utf8_length(str, (duk_size_t) blen);
+	clen = blen;
 	DUK_ASSERT(clen <= blen);
 #if defined(DUK_USE_HSTRING_CLEN)
 	DUK_HSTRING_SET_CHARLEN(res, clen);
