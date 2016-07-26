@@ -1,0 +1,3 @@
+[submodule "deps/APECore"]
+	path = deps/APECore
+	url = https://github.com/APE-EDX/APECore.git
