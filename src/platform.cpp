@@ -32,7 +32,7 @@ const MemoryProtect toMemoryProtect(uint32_t protect)
 		case PAGE_EXECUTE_READWRITE:	return MemoryProtect::EXECUTE_READWRITE;
 	}
 
-	return MemoryProtect::EXECUTE_READ;
+	return MemoryProtect::NONE;
 }
 
 bool createThread(ThreadFunction function, void* parameter)
@@ -59,12 +59,42 @@ uint32_t getLibrarySize()
 	return modInfo.SizeOfImage;
 }
 
-VirtualState virtualMemoryState(void* address)
+void* getProcessOEP()
+{
+	return GetModuleHandle(NULL);
+}
+
+uint32_t getProcessSize()
+{
+	MODULEINFO modInfo;
+	GetModuleInformation(GetCurrentProcess(), GetModuleHandle(NULL), &modInfo, sizeof(MODULEINFO));
+	return modInfo.SizeOfImage;
+}
+
+VirtualState virtualMemoryState(void* address, size_t* size)
 {
 	MEMORY_BASIC_INFORMATION mi = { 0 };
 	VirtualQuery(address, &mi, sizeof(mi));
 
+	if (size)
+	{
+		*size = mi.RegionSize;
+	}
+
 	return (mi.State == MEM_FREE) ? VirtualState::FREE : VirtualState::RESERVED;
+}
+
+MemoryProtect virtualMemoryProtectState(void* address, size_t* size)
+{
+	MEMORY_BASIC_INFORMATION mi = { 0 };
+	VirtualQuery(address, &mi, sizeof(mi));
+
+	if (size)
+	{
+		*size = mi.RegionSize;
+	}
+
+	return toMemoryProtect(mi.Protect);
 }
 
 void* virtualMemoryCommit(void* address, size_t size, MemoryProtect protect)
