@@ -39,6 +39,11 @@ namespace ape
 			return MemoryProtect::NONE;
 		}
 
+		void sleep(uint32_t ms)
+		{
+			Sleep(ms);
+		}
+
 		bool createThread(ThreadFunction function, void* parameter)
 		{
 			return CreateThread(NULL, NULL, (LPTHREAD_START_ROUTINE)function, parameter, 0, NULL) != NULL;
