@@ -1,18 +1,23 @@
 #include "socket.hpp"
 #include "utils.hpp"
+#include "logger.hpp"
 
 #include <Windows.h>
 #include <duktape.h>
 #include <apecore.hpp>
 
+
 HINSTANCE dllhandle;
 
 BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID reserved)
 {
-	CreateConsole();
+	gLogger->log("[??] DLLMain, reason = %d\n", reason);
 
     if (reason == DLL_PROCESS_ATTACH)
     {
+		gLogger->log("[==] APEDLL Starting\n");
+		CreateConsole();
+
 		// Save handle
 		dllhandle = handle;
 
@@ -20,6 +25,7 @@ BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID reserved)
 		duk_context* ctx = apecore_initialize([](duk_context* ctx) -> void {
 
 			// Add CreateConsole
+			gLogger->log("[==] APEDLL pushing CreateConsole\n");
 			duk_push_c_function(ctx, WrapCreateConsole, DUK_VARARGS);
 			duk_put_global_string(ctx, "CreateConsole");
 
